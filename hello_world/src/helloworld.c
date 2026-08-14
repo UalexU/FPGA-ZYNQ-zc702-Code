@@ -1,74 +1,62 @@
-#include "xparameters.h"
-#include "xgpiops.h"
+#include "xil_io.h"
 #include "xil_printf.h"
 #include "sleep.h"
 #include "platform.h"
-#include <xil_types.h>
 
+#define SLCR_BASE       0xF8000000
+#define SLCR_LOCK       (SLCR_BASE + 0x004)   /* write 0x767B */
+#define SLCR_UNLOCK     (SLCR_BASE + 0x008)   /* write 0xDF0D */
+#define APER_CLK_CTRL   (SLCR_BASE + 0x12C)   /* peripheral clock gates */
+
+/* GPIO registers from M02 */
+#define GPIO_BASE  0xE000A000
+#define DATA_0     (GPIO_BASE + 0x040)
+#define DIRM_0     (GPIO_BASE + 0x204)
+#define OEN_0      (GPIO_BASE + 0x208)
 #define LED_PIN  8
-#define BTN_PIN_SW14  12       /* placeholder - task 2 finds the real value */
+#define BTN_PIN_SW14  12       
 #define BTN_PIN_SW13  14 
 
-static XGpioPs Gpio;
-
-/* Standard driver bring-up. Identical for every Xilinx driver: look up
-   the hardware description, then initialise an instance from it.
-   You would paste this in real life too. */
-static int gpio_init(void)
-{
-    XGpioPs_Config *cfg = XGpioPs_LookupConfig(XPAR_XGPIOPS_0_BASEADDR);
-    /* Vitis 2025.1 SDT flow: XGpioPs_LookupConfig(XPAR_XGPIOPS_0_BASEADDR) */
-    if (cfg == NULL) {
-        xil_printf("No GPIO in this BSP - did you tick GPIO MIO in Vivado?\r\n");
-        return XST_FAILURE;
-    }
-    return XGpioPs_CfgInitialize(&Gpio, cfg, cfg->BaseAddr);
-}
-
-void configure_led(void){
-            XGpioPs_SetDirectionPin(&Gpio, LED_PIN, 1);
-            //XGpioPs_SetOutputEnablePin(&Gpio, LED_PIN, 1);
-        }
-
-
-void find_button(void){
-
-    u32 prev[16]; 
-    for (int i=8; i < 15; i++){
-            XGpioPs_SetDirectionPin(&Gpio, i, 0);
-            prev[i] = XGpioPs_ReadPin(&Gpio, i);
-    }
-
-    xil_printf("Press BTN SW13 to read the pin");
-
-    while(1){
-        for(int p = 8; p <= 15; p++){
-            u32 now = XGpioPs_ReadPin(&Gpio, p);
-            if (now != prev[p]){
-                xil_printf("MIO %2d -> %lu\r\n", p, now);
-                prev[p] = now;
-            }
-        }
-        usleep(2000);
-
-    }
-
-
-}
 int main(void)
 {
     init_platform();
-    xil_printf("\r\nM01 starting\r\n");
-    if (gpio_init() != XST_SUCCESS) return -1;
-    configure_led(); 
-    // find_button(); 
-    /* --- your code goes here --- */
-    XGpioPs_SetDirectionPin(&Gpio, BTN_PIN_SW14, 0);
-    xil_printf("Led turns on when press BTN SW14\r\n");
 
-    while (1) {
-    XGpioPs_WritePin(&Gpio, LED_PIN, XGpioPs_ReadPin(&Gpio, BTN_PIN_SW14));
-    usleep(10000);
+    // Setting my output pins. 
+    Xil_Out32(DIRM_0, Xil_In32(DIRM_0) | (1u << LED_PIN)); // This makes the offset bit that sets direction On
+    Xil_Out32(OEN_0,  Xil_In32(OEN_0)  | (1u << LED_PIN)); // THis makes the offsett bit that enables ON
+
+    xil_printf("\r\nM03 starting\r\n");
+    xil_printf("Aper Clk Ctrl: 0x%08lX\r\n", Xil_In32(APER_CLK_CTRL));
+    Xil_Out32(SLCR_UNLOCK, 0xDF0D);
+
+while (1) {
+
+    xil_printf("Clock is ON - LED SHOULD BE ON");
+    for (int i = 0; i < 5; i++){
+        Xil_Out32(DATA_0, Xil_In32(DATA_0) | (1u << LED_PIN));
+        usleep(200000);
+        Xil_Out32(DATA_0, Xil_In32(DATA_0) & ~(1u << LED_PIN));
+        usleep(200000);
+
+    }
+
+    // Now I will turn off the clock for GPIO
+
+    Xil_Out32(APER_CLK_CTRL, Xil_In32(APER_CLK_CTRL) & ~(1u << 22)); // OFF
+    // My LED should not change because the clock does not move. 
+    for (int i = 0; i < 5; i++){
+        Xil_Out32(DATA_0, Xil_In32(DATA_0) | (1u << LED_PIN));
+        usleep(200000);
+        Xil_Out32(DATA_0, Xil_In32(DATA_0) & ~(1u << LED_PIN));
+        usleep(200000);
+
+    }
+
+    // Restored clock, LED should turn on again
+    Xil_Out32(APER_CLK_CTRL, Xil_In32(APER_CLK_CTRL) |  (1u << 22)); // ON Clokc
+    Xil_Out32(DATA_0, Xil_In32(DATA_0) | (1u << LED_PIN)); // ON LED
+    usleep(200000);
 }
+    
     return 0;
 }
