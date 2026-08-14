@@ -2412,3 +2412,4 @@ GPIO_Platform/zynq_fsbl/UserConfig.cmake
 GPIO_Platform/zynq_fsbl/Zynq_fsblExample.cmake
 GPIO_Platform/.gitignore
 GPIO_Platform/vitis-comp.json
+_ide/workspace_journal_25032.py
