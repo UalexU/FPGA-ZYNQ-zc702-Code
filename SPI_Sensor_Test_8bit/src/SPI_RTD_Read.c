@@ -1,243 +1,177 @@
 /*
- * XSpi (AXI Quad SPI, PL core) -- MAX31865 RTD read.
- * 
- * Configures the MAX31865, then reads all 8 registers (00h..07h) in
- * one multibyte transfer and decodes the RTD resistance.
+ * MAX31865 RTD reader -- AXI Quad SPI (PL core), Zynq-7000.
+ * Streams temperature over UART as tenths of a degree C, once per second.
  */
 #include "xparameters.h"
 #include "xspi.h"
 #include "xil_printf.h"
 #include "sleep.h"
 #include "platform.h"
-#include <xspi.h>
+
+/* ------------------------------------------------------- build options */
+#define DEBUG_MODE        0   /* 1 = diagnostics on the UART alongside data  */
+#define WAIT_FOR_HOST     0   /* 1 = block until the PC sends 'S'            */
+#define APPLY_BIT_SHIFT   0   /* only needed with automatic slave select     */
+
+#define SAMPLE_PERIOD_US  1000000
+
+#if DEBUG_MODE
+  #define DBG(...) xil_printf(__VA_ARGS__)
+#else
+  #define DBG(...) ((void)0)
+#endif
+
+/* ------------------------------------------------------------ MAX31865 */
+#define REG_COUNT      9      /* 1 address byte + registers 00h..07h */
+#define CONFIG_READ    0x00
+#define CONFIG_WRITE   0x80   /* write address = read address | 0x80 */
+
+#define CFG_VBIAS_ON     0x80
+#define CFG_AUTO_CONV    0x40
+#define CFG_ONE_SHOT     0x20
+#define CFG_3WIRE        0x10  /* 0 = 2- or 4-wire */
+#define CFG_FAULT_CLEAR  0x02
+#define CFG_50HZ         0x01  /* 0 = 60 Hz notch */
+
+/* Manual slave select: the MAX31865 needs CS low >=400ns before the first
+ * SCLK edge (tCC, p.4) and samples SCLK at the CS falling edge to detect
+ * clock polarity (p.17). Automatic mode starts on the first SCK edge and
+ * leaves no setup time for either. CPHA=1 required; CPOL is auto-detected. */
+#define SPI_OPTIONS (XSP_MASTER_OPTION | XSP_CLK_ACTIVE_LOW_OPTION | \
+                     XSP_CLK_PHASE_1_OPTION | XSP_MANUAL_SSELECT_OPTION)
 
 static XSpi Spi;
-/* 1 address byte + 8 data bytes = the whole register map. */
-#define BufferOut 9
-#define BufferIn 9
 
-/* SPI mode 3 (CPOL=1, CPHA=1) with manual chip select.
- * Drop XSP_CLK_ACTIVE_LOW_OPTION for mode 1; the MAX31865 auto-detects
- * clock polarity, so only CPHA=1 is actually required. */
-#define SPI_OPTIONS (XSP_MASTER_OPTION | \
-                     XSP_CLK_ACTIVE_LOW_OPTION | \
-                     XSP_CLK_PHASE_1_OPTION | \
-                     XSP_MANUAL_SSELECT_OPTION)
+/* --------------------------------------------- conversions (pure math) */
 
-/* Was 1 while automatic slave select starved the tCC setup time and the
- * data arrived one bit late. Manual slave select fixed the root cause,
- * so the data is now correctly aligned and shifting it would BREAK it.
- * Only set this back to 1 if you return to automatic slave select. */
-#define APPLY_BIT_SHIFT  0
+/* RTD register: 15-bit code in D15..D1, fault flag in D0.
+ * Read the fault bit before shifting -- the shift discards it. */
+static int rtd_to_adc(u8 msb, u8 lsb, int *fault)
+{
+    if (fault) *fault = lsb & 0x01;
+    return (msb << 7) | (lsb >> 1);
+}
 
-/* MAX31865 register addresses (Table 1).
- * Write addresses are the read address with bit 7 set. */
-#define CONFIG_READ    0x00
-#define CONFIG_WRITE   0x80
-#define RTD_MSB_READ   0x01
+/* Rref = 400 ohm. */
+static int adc_to_rrtd(int adc)
+{
+    return (adc * 400) / 32768;
+}
 
-/* Configuration register bits (Table 2). */
-#define CFG_VBIAS_ON     0x80   /* D7: bias voltage on */
-#define CFG_AUTO_CONV    0x40   /* D6: continuous conversion */
-#define CFG_ONE_SHOT     0x20   /* D5: single conversion (self-clearing) */
-#define CFG_3WIRE        0x10   /* D4: 1 = 3-wire, 0 = 2-wire or 4-wire */
-#define CFG_FAULT_CLEAR  0x02   /* D1: clear fault status (self-clearing) */
-#define CFG_50HZ         0x01   /* D0: 1 = 50Hz notch, 0 = 60Hz */
+/* Linear approximation (p.11): T = code/32 - 256.
+ * Returned in TENTHS of a degree so integer math keeps one decimal. */
+static int adc_to_celsius_x10(int adc)
+{
+    return ((adc * 10) / 32) - 2560;
+}
+
+/* ------------------------------------------------------------- helpers */
+
+#if APPLY_BIT_SHIFT
+/* Realign data that arrives one bit late under automatic slave select.
+ * Byte positions are unchanged. Disabled: manual SS fixed the root cause,
+ * and applying this now would BREAK correctly aligned data. */
+static void shift_buffer_left(u8 *buf, int len)
+{
+    for (int i = 0; i < len - 1; i++)
+        buf[i] = (buf[i] << 1) | (buf[i + 1] >> 7);
+    buf[len - 1] <<= 1;
+}
+#endif
+
+#if DEBUG_MODE
+/* Check against Table 1. Sanity: [4][5] must be FF FF, [6][7] must be
+ * 00 00. Those are power-on constants -- if they are wrong, the byte
+ * alignment is wrong and nothing below can be trusted. */
+static void dump_registers(const u8 *rx)
+{
+    xil_printf("got:");
+    for (int i = 0; i < REG_COUNT; i++) xil_printf(" %02X", rx[i]);
+    xil_printf("\r\n [1] 00h Config   : %02X"
+               "\r\n [2] 01h RTD MSB  : %02X"
+               "\r\n [3] 02h RTD LSB  : %02X"
+               "\r\n [4] 03h HFT MSB  : %02X"
+               "\r\n [5] 04h HFT LSB  : %02X"
+               "\r\n [6] 05h LFT MSB  : %02X"
+               "\r\n [7] 06h LFT LSB  : %02X"
+               "\r\n [8] 07h Fault    : %02X\r\n",
+               rx[1], rx[2], rx[3], rx[4], rx[5], rx[6], rx[7], rx[8]);
+}
+#endif
 
 static int spi_init(void)
 {
     XSpi_Config *cfg = XSpi_LookupConfig(XPAR_XSPI_0_BASEADDR);
-    if (cfg == NULL) {
-        return XST_FAILURE;
-    }
+    if (cfg == NULL) return XST_FAILURE;
     return XSpi_CfgInitialize(&Spi, cfg, cfg->BaseAddress);
 }
 
-int adc_to_rrtd(int adc){
-    int RRTD = (adc*400)/32768;
-    xil_printf("\r\nRTD Resistance is: %d\r\n", RRTD);
-    return RRTD;
-}
-
-int adc_to_celcius(int adc){
-    int celcius = (adc/32)-256;
-    return celcius;
-}
-
-/* Linear approximation from page 11: T = (code / 32) - 256.
- * Returns TENTHS of a degree C, because xil_printf has no %f and
- * plain integer division would throw away the decimal. */
-int adc_to_celcius_x10(int adc){
-    return ((adc * 10) / 32) - 2560;
-}
-
-int rtd_to_adc(int rtd_1, int rtd_2){
-    /* Read the fault flag BEFORE shifting: it lives in D0 of the LSB
-     * byte, and the shift below discards exactly that bit. */
-    int fault = rtd_2 & 1;
-
-    rtd_1 = rtd_1 << 7;
-    rtd_2 = rtd_2 >> 1;
-
-    if (fault) {
-        xil_printf("\r\nRTD fault bit set -- check register 07h\r\n");
-    }
-    return rtd_1 | rtd_2;
-
-}
-
-/* Shift the whole receive buffer left by one bit.
- *
- * Kept for reference. This compensated for data arriving one bit late
- * under automatic slave select. With manual slave select the data is
- * already aligned, so this is disabled via APPLY_BIT_SHIFT.
- *
- * Byte positions are unchanged, so rx[1] is still 00h, rx[2] is 01h,
- * and so on after the shift. */
-void shift_buffer_left(u8 *buf, int len)
-{
-    for(int i = 0; i < len - 1; i++){
-        buf[i] = (buf[i] << 1) | (buf[i+1] >> 7);
-    }
-    buf[len-1] = buf[len-1] << 1;   /* no next byte to pull a bit from */
-}
+/* ---------------------------------------------------------------- main */
 
 int main(void)
 {
-    int status;
+    u8 cfg_tx[2] = { CONFIG_WRITE,
+                     CFG_VBIAS_ON | CFG_AUTO_CONV | CFG_FAULT_CLEAR };
+    u8 cfg_rx[2] = { 0 };
+#if DEBUG_MODE
+    int first = 1;
+#endif
 
     init_platform();
-    xil_printf("\r\nM13 starting (MAX31865)\r\n");
+    DBG("\r\nM13 starting (MAX31865)\r\n");
 
-    status = spi_init();
-    if (status != XST_SUCCESS) {
-        xil_printf("SPI init failed (status=%d)\r\n", status);
+    if (spi_init() != XST_SUCCESS) {
+        xil_printf("SPI init failed\r\n");
         return XST_FAILURE;
     }
 
-    /* Set the SPI device as a master with Mode 1 settings:
-    * - XSP_MASTER_OPTION: Enables Master mode.
-    * - XSP_CLK_PHASE_1_OPTION: Sets Clock Phase (CPHA) to 1.
-    *   The MAX31865 requires CPHA=1 but auto-detects clock polarity
-    *   at the CS falling edge, so CPOL does not matter (page 17).
-    */
-    /* XSP_MANUAL_SSELECT_OPTION: drive CS from the slave select register
-     * instead of letting the core sequence it per transfer. The MAX31865
-     * needs CS low at least 400ns before the first SCLK edge (tCC, page 4)
-     * and samples SCLK at the CS falling edge to detect clock polarity
-     * (page 17). Automatic mode starts the transfer on the first SCK edge,
-     * which leaves no setup time for either. */
-    status = XSpi_SetOptions(&Spi, SPI_OPTIONS);
-    xil_printf("SetOptions status = %d\r\n", status);
+    XSpi_SetOptions(&Spi, SPI_OPTIONS);
+    XSpi_SetSlaveSelect(&Spi, 0x1);
+    XSpi_Start(&Spi);            /* without Start the core stays inhibited */
 
-    /* Read the options back to confirm the hardware actually took them. */
-    xil_printf("Options wanted   = %08X\r\n", (unsigned int)SPI_OPTIONS);
-    xil_printf("Options readback = %08X\r\n",
-               (unsigned int)XSpi_GetOptions(&Spi));
-
-    status = XSpi_SetSlaveSelect(&Spi, 0x1);
-    xil_printf("SetSlaveSelect status = %d\r\n", status);
-    /* XSpi requires an explicit Start -- without this the core stays
-     * inhibited and Transfer silently does nothing. */
-    status = XSpi_Start(&Spi);
-    xil_printf("Start status = %d\r\n", status);
-
-    /* THE KEY FIX: force polled (blocking) operation. Without this,
-     * Transfer() can return almost immediately having only started
-     * an interrupt-driven transfer, with nothing actually servicing
-     * the completion interrupt -- which is why rx[] stayed at zero
-     * every time even though status kept reporting success. */
+    /* Force polled operation. Otherwise Transfer() returns immediately
+     * having only kicked off an interrupt-driven transfer that nothing
+     * services, and rx[] stays zero while status still reports success. */
     XSpi_IntrGlobalDisable(&Spi);
 
-    /* Configure the MAX31865 before reading it. Out of reset the
-     * config register is 00h: bias off and ADC off, so the RTD
-     * registers never fill in. Bias on + auto conversion + clear
-     * any stale faults. Add CFG_3WIRE here for a 3-wire RTD. */
-    u8 cfg_tx[2] = { CONFIG_WRITE, CFG_VBIAS_ON | CFG_AUTO_CONV | CFG_FAULT_CLEAR };
-    u8 cfg_rx[2] = { 0 };
+    /* Out of reset the config register is 00h -- bias off, ADC off -- so
+     * the RTD registers never fill in. Add CFG_3WIRE for a 3-wire RTD. */
+    XSpi_Transfer(&Spi, cfg_tx, cfg_rx, 2);
+    DBG("Config wrote %02X\r\n", cfg_tx[1]);
 
-    status = XSpi_Transfer(&Spi, cfg_tx, cfg_rx, 2);
-    xil_printf("Config write status = %d (wrote %02X)\r\n", status, cfg_tx[1]);
+#if WAIT_FOR_HOST
+    while (inbyte() != 'S') { ; }   /* PC gives the starting gun */
+#endif
 
-    /* Continuous conversion mode: the first conversion after enabling
-     * takes the single-conversion time, ~52ms at 60Hz (page 13). Wait
-     * that out so the first read is not stale. */
-    usleep(65000);
+    while (1) {
+        u8 tx[REG_COUNT] = { CONFIG_READ };
+        u8 rx[REG_COUNT] = { 0 };
+        int adc, fault;
 
-    int counter = 0;
+        usleep(SAMPLE_PERIOD_US);
 
-    /* One address byte (00h) then 8 dummy bytes. The chip
-     * auto-increments, so rx[1]..rx[8] hold registers 00h..07h. */
-    u8 tx[BufferOut] = {CONFIG_READ};
-    u8 rx[BufferIn] = {0};
-
-    status = XSpi_Transfer(&Spi, tx, rx, BufferIn);
-    XSpi_SetSlaveSelect(&Spi, 0);
-    if (counter < 1) {
-        xil_printf("Transfer status = %d\r\n", status);
-
-        for(int count = 0; count < BufferIn; count++){
-            if(count == 0){
-                xil_printf("sent: %02X", tx[count]);
-            }
-            else{
-                xil_printf(" %02X\r", tx[count]);
-            }
-        }
-
-        for(int count = 0; count < BufferIn; count++){
-            if(count == 0){
-                xil_printf("\n\rgot:  %02X", rx[count]);
-            }
-            else{
-                xil_printf(" %02X\r", rx[count]);
-            }
+        /* The chip auto-increments, so rx[1]..rx[8] hold 00h..07h. */
+        if (XSpi_Transfer(&Spi, tx, rx, REG_COUNT) != XST_SUCCESS) {
+            DBG("Transfer failed\r\n");
+            continue;
         }
 
 #if APPLY_BIT_SHIFT
-        /* Realign the one-bit offset, then show the corrected bytes. */
-        shift_buffer_left(rx, BufferIn);
-
-        for(int count = 0; count < BufferIn; count++){
-            if(count == 0){
-                xil_printf("\n\rshifted: %02X", rx[count]);
-            }
-            else{
-                xil_printf(" %02X\r", rx[count]);
-            }
-        }
+        shift_buffer_left(rx, REG_COUNT);
 #endif
+#if DEBUG_MODE
+        if (first) { dump_registers(rx); first = 0; }
+#endif
+
+        adc = rtd_to_adc(rx[2], rx[3], &fault);   /* rx[1] is 00h */
+
+        DBG("adc=%d rtd=%d ohm%s\r\n", adc, adc_to_rrtd(adc),
+            fault ? "  FAULT (check 07h)" : "");
+
+        /* Wire format: tenths of a degree, plain integer, nothing else.
+         * Python side: value = int(line) / 10.0 */
+        xil_printf("%d\r\n", adc_to_celsius_x10(adc));
     }
-
-    counter++;
-
-    /* Labeled dump so each byte can be checked against Table 1.
-     * Sanity check: [4][5] must read FF FF and [6][7] must read 00 00.
-     * Those are power-on constants, so if they are wrong the alignment
-     * is wrong and nothing below can be trusted. */
-    xil_printf("\n\r--- register map ---\n\r");
-    xil_printf("  [0] discarded (SDO high-Z during address): %02X\n\r", rx[0]);
-    xil_printf("  [1] 00h Configuration          : %02X\n\r", rx[1]);
-    xil_printf("  [2] 01h RTD MSBs               : %02X\n\r", rx[2]);
-    xil_printf("  [3] 02h RTD LSBs               : %02X\n\r", rx[3]);
-    xil_printf("  [4] 03h High Fault Thresh MSB  : %02X\n\r", rx[4]);
-    xil_printf("  [5] 04h High Fault Thresh LSB  : %02X\n\r", rx[5]);
-    xil_printf("  [6] 05h Low Fault Thresh MSB   : %02X\n\r", rx[6]);
-    xil_printf("  [7] 06h Low Fault Thresh LSB   : %02X\n\r", rx[7]);
-    xil_printf("  [8] 07h Fault Status           : %02X\n\r", rx[8]);
-
-    /* rx[1] is 00h, so the RTD pair is rx[2] (MSB) and rx[3] (LSB). */
-    int adc = rtd_to_adc(rx[2], rx[3]);
-    int rtd = adc_to_rrtd(adc);
-    xil_printf("\n\rThe rtd to adc: %d\n\r", adc);
-    xil_printf("\n\rRTD is: %d\n\r", rtd);
-    xil_printf("Celcius: %d\n\r", adc_to_celcius(adc));
-
-    /* Same reading with one decimal place. */
-    int c_x10 = adc_to_celcius_x10(adc);
-    const char *sign = (c_x10 < 0 && c_x10 > -10) ? "-" : "";
-    xil_printf("Temperature: %s%d.%d C\n\r",
-               sign, c_x10 / 10, (c_x10 < 0 ? -c_x10 : c_x10) % 10);
 
     return 0;
 }
