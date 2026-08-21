@@ -1,0 +1,45 @@
+# Ignore object files and dependent files
+.o
+.d
+
+#Ignore logs folder and log files
+/logs
+.log
+
+#Ignore lock files
+.lock
+
+.bin
+.pdi
+.vitisWorkspace.json
+
+_ide/logs
+_ide/.wsdata
+
+# Vitis IDE workspace metadata
+_ide/
+.metadata/
+.Xil/
+*.log
+*.jou
+
+# Per-project build/generated junk
+/build
+/export
+**/Debug/
+**/Release/
+**/bsp/
+**/hw/
+**/export/
+*.o
+*.elf
+*.bit
+*.bin
+*.map
+*.ltx
+*.xsa
+
+# Auto-regenerated project files
+**/.cproject
+**/.project
+**/lscript.ld
