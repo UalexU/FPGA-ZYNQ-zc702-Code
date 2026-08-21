@@ -10,7 +10,7 @@
 
 /* ------------------------------------------------------- build options */
 #define DEBUG_MODE        0   /* 1 = diagnostics on the UART alongside data  */
-#define WAIT_FOR_HOST     0   /* 1 = block until the PC sends 'S'            */
+#define WAIT_FOR_HOST     1   /* 1 = block until the PC sends 'S'            */
 #define APPLY_BIT_SHIFT   0   /* only needed with automatic slave select     */
 
 #define SAMPLE_PERIOD_US  1000000
