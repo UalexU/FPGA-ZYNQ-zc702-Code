@@ -1,0 +1,7 @@
+{
+  "workspaceRoot": "C:\\Users\\Admin\\XilinxProjects\\Test\\Vitis",
+  "mapping": {
+    "array_partition_block_cyclic\\matmul_partition_test.cpp": "array_partition_block_cyclic",
+    "array_partition_block_cyclic\\matmul_partition.cpp": "array_partition_block_cyclic"
+  }
+}
