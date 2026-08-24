@@ -1,16 +1,16 @@
 # Ignore object files and dependent files
-.o
-.d
+*.o
+*.d
 
-#Ignore logs folder and log files
+# Ignore logs folder and log files
 /logs
-.log
+*.log
 
-#Ignore lock files
-.lock
+# Ignore lock files
+*.lock
 
-.bin
-.pdi
+*.bin
+*.pdi
 .vitisWorkspace.json
 
 _ide/logs
@@ -23,14 +23,22 @@ _ide/
 *.log
 *.jou
 
-# Per-project build/generated junk
-/build
-/export
+# Per-project build/generated junk (nested, not just repo root)
+**/build/
+**/export/
 **/Debug/
 **/Release/
 **/bsp/
 **/hw/
-**/export/
+
+# CMake-generated files
+**/CMakeFiles/
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/CTestTestfile.cmake
+**/compile_commands.json
+**/CMakeScripts/
+
 *.o
 *.elf
 *.bit

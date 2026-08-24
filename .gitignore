@@ -1,5 +1,3 @@
-
-
 # Object files, dependency files, misc build byproducts
 *.o
 *.d
@@ -25,15 +23,14 @@ _ide/
 .vitisWorkspace.json
 
 # Per-project build/generated junk
-/build
-/export
+**/build/
+**/export/
 **/Debug/
 **/Release/
 **/bsp/
 **/*_bsp/
 **/hw/
 **/hw_artifacts/
-**/export/
 **/.gen/
 **/libsrc/
 **/linker_files/
@@ -49,7 +46,6 @@ _ide/
 **/UserConfig.cmake
 **/Empty_applicationExample.cmake
 
-.rigel_lopper/
 **/zynq_fsbl/
 GPIO_Platform/.gitignore
 GPIO_Platform/vitis-comp.json
