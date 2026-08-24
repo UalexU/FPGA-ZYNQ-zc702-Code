@@ -4,9 +4,14 @@ from matplotlib.figure import Figure
 from tkinter import filedialog, messagebox
 import pandas as pd
 import random
+import serial
+import time
 
 def start_sensors():
     print("initializing sensors")
+    ser.write(b"S")
+    start_time = time.perf_counter()
+    update_plot(0, start_time)
 
 def toggle_sensor1():
     sensor1_line.set_visible(sensor1_checkbox_enable.get() == 1)
@@ -40,13 +45,13 @@ def export_data():
         f"Data saved to:\n{filename}"
     )
     
-def update_plot(n):
-    dummy_xdata = n
-    dummy_ydata1 = 23*(random.random()/2 + 0.75)
+def update_plot(n, start_time):
+    xdata = time.perf_counter() - start_time
+    ydata1 = single_read()
     dummy_ydata2 = 23*(random.random()/2 + 0.75)
 
-    x_data.append(dummy_xdata)
-    y1.append(dummy_ydata1)
+    x_data.append(xdata)
+    y1.append(ydata1)
     y2.append(dummy_ydata2)
     
     x_data_plot = x_data[-30:]
@@ -60,8 +65,18 @@ def update_plot(n):
     ax.autoscale_view()
 
     canvas.draw_idle()
-    window.after(1000, update_plot, n + 1)
+    window.after(1000, update_plot, n + 1, start_time)
     
+def single_read():
+    timeout = 0
+    while timeout < 10:
+        raw_data = ser.readline()
+        cleaned_data = raw_data.decode('utf-8', errors='ignore').strip()
+        if cleaned_data:
+            return int(cleaned_data)/10
+        else:
+            timeout = timeout + 1
+    raise ValueError('No data received - timed out.')
     
 # Initialize the main UI window context
 window = tk.Tk()
@@ -135,7 +150,11 @@ ExportButton.pack(pady=10)
 # 4. Draw the canvas and start the loop
 canvas.draw()
 
-update_plot(0)
+PORT = 'COM4'
+BAUDRATE = 115200
+ser = serial.Serial(PORT, baudrate=BAUDRATE, timeout=1)
+print(f"Successfully connected to {PORT} at {BAUDRATE} baud.")
+time.sleep(1)
 
 # Keeps the window interactive and running indefinitely
 window.mainloop()
