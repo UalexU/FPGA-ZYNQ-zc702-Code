@@ -5,11 +5,20 @@ from tkinter import filedialog, messagebox, ttk
 import pandas as pd
 import random
 import serial
+import serial.tools.list_ports
 import time
 
 def com_handle():
     com_port = com_text_box.get()
     return com_port
+    
+def refresh_ports():
+    ports = [port.device for port in serial.tools.list_ports.comports()]
+    com_text_box["values"] = ports
+    if ports:
+        com_text_box.set(ports[0])
+    else:
+        com_text_box.set("")
     
 def baud_handle():
     baud_rate = baud_text_box.get()
@@ -134,16 +143,33 @@ control_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=20)
 
 com_label = tk.Label(control_frame, text="COM Port:")
 com_label.pack(pady=(10, 2))
-com_text_box = tk.Entry(control_frame, width=20)
-com_text_box.pack(padx=10, pady=10)
+com_label = tk.Label(control_frame, text="COM Port:")
+com_label.pack(pady=(10, 2))
+ports = [port.device for port in serial.tools.list_ports.comports()]
+com_text_box = ttk.Combobox(
+    control_frame,
+    values=ports,
+    state="readonly",
+    width=10
+)
+if ports:
+    com_text_box.set(ports[0])
+com_text_box.pack(padx=10, pady=(0, 10))
 
+refresh_button = tk.Button(
+    control_frame,
+    text="Refresh Ports",
+    command=refresh_ports
+)
+
+refresh_button.pack(pady=5)
 baud_label = tk.Label(control_frame, text="Baud Rate:")
 baud_label.pack(pady=(10, 2))
 baud_text_box = ttk.Combobox(
     control_frame,
     values=["9600", "19200", "38400", "57600", "115200"],
     state="readonly",
-    width=17
+    width=10
 )
 baud_text_box.set("115200")
 baud_text_box.pack(padx=10, pady=(0, 10))
