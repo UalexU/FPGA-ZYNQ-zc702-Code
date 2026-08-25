@@ -11,6 +11,8 @@ def start_sensors():
     print("initializing sensors")
     ser.write(b"S")
     start_time = time.perf_counter()
+    ser.reset_input_buffer()
+    ser.reset_output_buffer()
     update_plot(0, start_time)
 
 def toggle_sensor1():
