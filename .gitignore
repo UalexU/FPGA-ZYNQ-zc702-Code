@@ -15,7 +15,7 @@
 /logs
 
 # Vitis IDE / tool workspace metadata
-# _ide/
+_ide/
 .metadata/
 .Xil/
 .rigel_lopper/

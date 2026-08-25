@@ -153,7 +153,7 @@ ExportButton.pack(pady=10)
 # 4. Draw the canvas and start the loop
 canvas.draw()
 
-PORT = 'COM4'
+PORT = 'COM7'
 BAUDRATE = 115200
 ser = serial.Serial(PORT, baudrate=BAUDRATE, timeout=1)
 print(f"Successfully connected to {PORT} at {BAUDRATE} baud.")
