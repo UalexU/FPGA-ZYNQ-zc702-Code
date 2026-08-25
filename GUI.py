@@ -1,19 +1,32 @@
 import tkinter as tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 import pandas as pd
 import random
 import serial
 import time
 
+def com_handle():
+    com_port = com_text_box.get()
+    return com_port
+    
+def baud_handle():
+    baud_rate = baud_text_box.get()
+    return baud_rate
+    
 def start_sensors():
+    PORT = com_handle()
+    BAUDRATE = int(baud_handle())
+    ser = serial.Serial(PORT, baudrate=BAUDRATE, timeout=1)
+    print(f"Successfully connected to {PORT} at {BAUDRATE} baud.")
+    time.sleep(1)
     print("initializing sensors")
     ser.write(b"S")
     start_time = time.perf_counter()
     ser.reset_input_buffer()
     ser.reset_output_buffer()
-    update_plot(0, start_time)
+    update_plot(0, start_time, ser)
 
 def toggle_sensor1():
     sensor1_line.set_visible(sensor1_checkbox_enable.get() == 1)
@@ -47,10 +60,10 @@ def export_data():
         f"Data saved to:\n{filename}"
     )
     
-def update_plot(n, start_time):
+def update_plot(n, start_time, ser):
     
     current_time = time.perf_counter() - start_time
-    ydata = single_read()
+    ydata = single_read(ser)
 
     y1.append(ydata[0])
     y2.append(ydata[1])
@@ -69,7 +82,7 @@ def update_plot(n, start_time):
     canvas.draw_idle()
     window.after(100, update_plot, n + 1, start_time)
     
-def single_read():
+def single_read(ser):
     timeout = 0
     while timeout < 10:
         raw_data = ser.readline()
@@ -119,6 +132,22 @@ canvas_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 control_frame = tk.Frame(window)
 control_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=20)
 
+com_label = tk.Label(control_frame, text="COM Port:")
+com_label.pack(pady=(10, 2))
+com_text_box = tk.Entry(control_frame, width=20)
+com_text_box.pack(padx=10, pady=10)
+
+baud_label = tk.Label(control_frame, text="Baud Rate:")
+baud_label.pack(pady=(10, 2))
+baud_text_box = ttk.Combobox(
+    control_frame,
+    values=["9600", "19200", "38400", "57600", "115200"],
+    state="readonly",
+    width=17
+)
+baud_text_box.set("115200")
+baud_text_box.pack(padx=10, pady=(0, 10))
+
 StartButton = tk.Button(
     control_frame,
     text="Start",
@@ -151,15 +180,8 @@ ExportButton = tk.Button(
 )
 ExportButton.pack(pady=10)
 
-
 # 4. Draw the canvas and start the loop
 canvas.draw()
-
-PORT = 'COM7'
-BAUDRATE = 115200
-ser = serial.Serial(PORT, baudrate=BAUDRATE, timeout=1)
-print(f"Successfully connected to {PORT} at {BAUDRATE} baud.")
-time.sleep(1)
 
 # Keeps the window interactive and running indefinitely
 window.mainloop()
