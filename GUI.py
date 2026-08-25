@@ -96,7 +96,7 @@ x_data = []
 y1 = []
 y2 = []
 sensor1_line, = ax.plot(x_data, y1, marker='o', color='b', label='Sensor 1', visible=1)
-sensor2_line, = ax.plot(x_data, y2, marker='o', color='r', label='Sensor 2', visible=0)
+sensor2_line, = ax.plot(x_data, y2, marker='o', color='r', label='Sensor 2', visible=1)
 ax.set_title("Sensor Temp")
 ax.set_xlabel("Time [Seconds]")
 ax.set_ylabel("Temp [C]")
@@ -135,7 +135,7 @@ checkbox1 = tk.Checkbutton(
 )
 checkbox1.pack(pady=10)
 
-sensor2_checkbox_enable = tk.IntVar(value=0)
+sensor2_checkbox_enable = tk.IntVar(value=1)
 checkbox2 = tk.Checkbutton(
     control_frame,
     text="Plot Sensor 2 Data",
