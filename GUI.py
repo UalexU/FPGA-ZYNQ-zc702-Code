@@ -89,7 +89,7 @@ def update_plot(n, start_time, ser):
     ax.autoscale_view()
 
     canvas.draw_idle()
-    window.after(100, update_plot, n + 1, start_time)
+    window.after(100, update_plot, n + 1, start_time, ser)
     
 def single_read(ser):
     timeout = 0
