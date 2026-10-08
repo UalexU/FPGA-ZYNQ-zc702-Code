@@ -1,0 +1,13 @@
+# tmag_gui.py (Tk + matplotlib)
+pandas
+matplotlib
+pyserial
+
+# scope_v2/tmag_scope.py (PySide6 + pyqtgraph)
+PySide6
+pyqtgraph
+numpy
+openpyxl
+
+# host/instrument filters (median, Hampel, low-pass, notch) -- optional
+scipy

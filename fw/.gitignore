@@ -1,0 +1,41 @@
+# ---- Vivado: generated, rebuilt on synthesis/implementation ----
+hw/*.cache/
+hw/*.runs/
+hw/*.gen/
+hw/*.sim/
+hw/*.hw/
+hw/*.ip_user_files/
+hw/.Xil/
+*.jou
+*.str
+vivado*.log
+vivado*.backup.*
+
+# ---- Vitis: generated, rebuilt when you build the platform/apps ----
+fw/_ide/
+fw/.rigel_lopper*/
+fw/**/build/
+fw/**/export/
+fw/**/logs/
+fw/**/.Xil/
+fw/**/bsp/libsrc/
+fw/**/compile_commands.json
+fw/*/hw/
+*.o
+*.d
+*.elf
+*.lock
+.vitisWorkspace.json
+
+# ---- Python ----
+.venv/
+__pycache__/
+*.pyc
+
+# ---- OS / editor ----
+.vscode/
+Thumbs.db
+desktop.ini
+
+# ---- Miscellaneous ----
+Documentation/*
