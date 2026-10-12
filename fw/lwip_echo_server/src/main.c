@@ -64,6 +64,7 @@ static LineBuf uart_line, net_line;
 
 static u32 sample_period_us = SAMPLE_PERIOD_US;
 static int streaming        = 1;
+static int sensors_ok       = 0;
 
 /* ===================== output ===================== */
 
@@ -268,14 +269,17 @@ int main(void)
 
     init_platform();                    /* caches, timer + interrupts for lwIP */
 
-    if (sensors_init() != 0) {
-        xil_printf("# sensor init failed -- halting\r\n");
-        return -1;
-    }
-
+    /* Network first, so a sensor problem never takes the Ethernet down. */
     if (net_init() != 0) {
         xil_printf("# Ethernet init failed -- UART only\r\n");
     }
+    xil_printf("# net up, starting sensors\r\n");
+
+    sensors_ok = (sensors_init() == 0);
+    if (!sensors_ok) {
+        xil_printf("# sensor init failed -- no samples, network stays up\r\n");
+    }
+    xil_printf("# sensors done, entering main loop\r\n");
 
     report_config();
     print_header();
@@ -287,13 +291,16 @@ int main(void)
 
         if (net_new_client()) {         /* PC just connected: tell it the setup */
             net_line.len = 0;
+            if (!sensors_ok) {
+                out_puts("# ERR sensor init failed at boot -- see the UART\r\n");
+            }
             report_config();
             print_header();
         }
 
         poll_commands();
 
-        if (!streaming) {
+        if (!streaming || !sensors_ok) {
             continue;
         }
 

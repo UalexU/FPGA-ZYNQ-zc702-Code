@@ -1,3 +1,3 @@
 {
-    "cmake.sourceDirectory": "C:/FPGA/TE0745/fw/copy"
+    "cmake.sourceDirectory": "C:/FPGA/TE0745/fw/Ethernet_SPI/zynq_fsbl"
 }

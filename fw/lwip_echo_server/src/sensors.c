@@ -2,6 +2,8 @@
  * sensors.c -- TMAG5170 (mode 0) and MAX31865 (mode 3) on AXI Quad SPI.
  * Logic unchanged from the UART-only main.c; text now goes through out.c.
  *
+ * Which core each sensor uses: TMAG_SPI_CORE in app_config.h.
+ *
  * Vivado, per core: 1 slave, 8-bit transaction width, STARTUP primitive
  * off, ext_spi_clk and s_axi_aresetn connected, AND AN ASSIGNED ADDRESS.
  */
@@ -25,14 +27,34 @@
 
 /* ===================== SPI cores ===================== */
 
-#define SPI_BASE_TMAG   XPAR_AXI_QUAD_SPI_0_BASEADDR
+#ifndef XPAR_AXI_QUAD_SPI_1_BASEADDR
+#  define SPI1_MISSING 1
+#endif
+
+#if HAVE_TMAG
+#  if TMAG_SPI_CORE == 1
+#    ifdef SPI1_MISSING
+#      error "TMAG_SPI_CORE=1 needs a second AXI Quad SPI (axi_quad_spi_1) in Vivado"
+#    endif
+#    define SPI_BASE_TMAG XPAR_AXI_QUAD_SPI_1_BASEADDR
+#  else
+#    define SPI_BASE_TMAG XPAR_AXI_QUAD_SPI_0_BASEADDR
+#  endif
+#  define TMAG_CORE_NUM TMAG_SPI_CORE
+#else
+#  define SPI_BASE_TMAG XPAR_AXI_QUAD_SPI_0_BASEADDR   /* unused */
+#  define TMAG_CORE_NUM 0
+#endif
+
 #if HAVE_RTD
-#  if RTD_ONLY
+#  if RTD_ONLY || (HAVE_TMAG && TMAG_SPI_CORE == 1)
+#    define RTD_CORE_NUM 0
 #    define SPI_BASE_RTD XPAR_AXI_QUAD_SPI_0_BASEADDR
 #  else
-#    ifndef XPAR_AXI_QUAD_SPI_1_BASEADDR
-#      error "ENABLE_RTD=1 needs a second AXI Quad SPI (axi_quad_spi_1) in Vivado, mode 3"
+#    ifdef SPI1_MISSING
+#      error "MAX31865 on axi_quad_spi_1 needs a second AXI Quad SPI in Vivado, mode 3"
 #    endif
+#    define RTD_CORE_NUM 1
 #    define SPI_BASE_RTD XPAR_AXI_QUAD_SPI_1_BASEADDR
 #  endif
 #endif
@@ -121,6 +143,11 @@ static int spi_setup(XSpi *dev, u32 base, u32 opts, const char *label)
                    label);
         return XST_FAILURE;
     }
+    /* If boot stops right after this line, nothing answers at that address
+     * in the PL: the bitstream lacks the core, or its AXI clock/reset/
+     * interconnect port is not connected. */
+    out_printf("# %s: base 0x%08X, touching registers...\r\n",
+               label, (unsigned)cfg->BaseAddress);
     status = XSpi_CfgInitialize(dev, cfg, cfg->BaseAddress);
     if (status != XST_SUCCESS) {
         out_printf("# %s: CfgInitialize failed (%d)\r\n", label, status);
@@ -135,6 +162,7 @@ static int spi_setup(XSpi *dev, u32 base, u32 opts, const char *label)
     XSpi_Start(dev);
     XSpi_IntrGlobalDisable(dev);
     XSpi_SetSlaveSelect(dev, SPI_NO_CS);
+    out_printf("# %s: ok\r\n", label);
     spi_dump(dev, label);
 
     if (dev->DataWidth != XSP_DATAWIDTH_BYTE) {
@@ -164,6 +192,11 @@ static u32 tmag_xfer(u32 frame)
     if (spi_burst(&SpiTmag, "tmag", tx, rx, 4) != XST_SUCCESS) {
         return 0;
     }
+#if DEBUG_TMAG_RAW
+    DBG("# tmag tx %08X rx %02X%02X%02X%02X\r\n", (unsigned)frame,
+        rx[0], rx[1], rx[2], rx[3]);
+#endif
+
     return ((u32)rx[0] << 24) | ((u32)rx[1] << 16) |
            ((u32)rx[2] << 8) | rx[3];
 }
@@ -233,9 +266,15 @@ static int tmag_apply_device_config(void)
 #if HAVE_RTD
 static void rtd_configure(void)
 {
+    /* Restore the power-on fault thresholds first (regs 03h..06h = FF FF 00 00).
+     * A stray write to them (e.g. TMAG frames clocked while this device shared
+     * the bus) leaves a latched threshold fault until power cycle. */
+    u8 thr[5] = { RTD_ADDR_WRITE | 0x03, 0xFF, 0xFF, 0x00, 0x00 };
+    u8 thr_rx[5] = { 0 };
     u8 tx[2] = { RTD_ADDR_WRITE, RTD_CONFIG };
     u8 rx[2] = { 0 };
 
+    spi_burst(&SpiRtd, "rtd thr", thr, thr_rx, 5);
     spi_burst(&SpiRtd, "rtd cfg", tx, rx, 2);
 }
 
@@ -358,6 +397,7 @@ int sensors_init(void)
                 != XST_SUCCESS) {
             return -1;
         }
+        out_printf("# TMAG5170 on axi_quad_spi_%d\r\n", TMAG_CORE_NUM);
     }
 #if HAVE_RTD
     if (spi_setup(&SpiRtd, SPI_BASE_RTD, OPTS_RTD, "rtd core")
@@ -385,7 +425,7 @@ int sensors_init(void)
 #if HAVE_RTD
     out_printf("# RTD %s on axi_quad_spi_%d, %s-wire, R0=%d ohm, "
                "Rref=%d ohm, lead=%d mohm, %d Hz notch\r\n",
-               RTD_ONLY ? "only" : "+TMAG", RTD_ONLY ? 0 : 1,
+               RTD_ONLY ? "only" : "+TMAG", RTD_CORE_NUM,
                (RTD_WIRE_MODE & 0x10) ? "3" : "2/4",
                RTD_R0_MOHM / 1000, RTD_RREF_MOHM / 1000, RTD_LEAD_MOHM,
                RTD_CONV_HZ);

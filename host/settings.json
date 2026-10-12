@@ -1,11 +1,11 @@
 {
   "_about": "TMAG5170 Scope settings. Edit freely: the GUI re-reads this file, and anything outside the instrument's limits is rejected and reported.",
   "current": {
-    "averaging": 1,
-    "sample_rate_hz": 400.0,
+    "averaging": 16,
+    "sample_rate_hz": 213.0,
     "range_mT": 100,
     "streaming": true,
-    "window_s": 20.0,
+    "window_s": 5.0,
     "fps": 30,
     "autoscale": true,
     "visible_channels": [
@@ -23,7 +23,7 @@
     "temp_comp_source": "rtd",
     "temp_coeff_pct": -0.12,
     "temp_ref_C": 25.0,
-    "filter": "moving_average",
+    "filter": "none",
     "filter_window": 20,
     "filter_tau_s": 1.0,
     "filter_cutoff_hz": 1.0,

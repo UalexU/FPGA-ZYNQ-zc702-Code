@@ -10,14 +10,25 @@
 /* ===================== build options ===================== */
 
 /* 1 = checkpoints, register dumps and raw frames on the UART (UART only). */
-#define DEBUG_MODE          0
+#define DEBUG_MODE          1
+/* 1 (with DEBUG_MODE 1) = print every TMAG5170 frame: tx word and raw rx bytes.
+ * Use for the J26 loopback test (pin 3 to pin 8) or to see all-00 / all-FF rx. */
+#define DEBUG_TMAG_RAW      1
 
 /* 1 = only the MAX31865, on axi_quad_spi_0 in mode 3 (no TMAG5170).
- * 0 = TMAG5170 on axi_quad_spi_0, MAX31865 per ENABLE_RTD. */
-#define RTD_ONLY            1
+ * 0 = TMAG5170 fitted (core set by TMAG_SPI_CORE), MAX31865 per ENABLE_RTD. */
+#define RTD_ONLY            0
 
-/* Only used when RTD_ONLY is 0: 1 = MAX31865 on axi_quad_spi_1 (mode 3). */
-#define ENABLE_RTD          0
+/* Only used when RTD_ONLY is 0: 1 = MAX31865 fitted as well (mode 3),
+ * 0 = TMAG5170 alone. */
+#define ENABLE_RTD          1
+
+/* Only used when RTD_ONLY is 0: which AXI Quad SPI the TMAG5170 is on.
+ * 1 = TMAG on axi_quad_spi_1 (J26), MAX31865 on axi_quad_spi_0 (J25).
+ * 0 = TMAG on axi_quad_spi_0 (J25), MAX31865 on axi_quad_spi_1 (J26).
+ * The SPI mode is set in software per core, so the two cores are identical
+ * in Vivado and only this flag changes when the sensors swap headers. */
+#define TMAG_SPI_CORE       0
 
 /* Printed in the five TMAG columns when RTD_ONLY is 1. */
 #define TMAG_PLACEHOLDER    "nan"
@@ -61,7 +72,7 @@
 #define RTD_WIRE_MODE       0x00    /* 0x00 = 2/4-wire, 0x10 = 3-wire */
 #define RTD_FILTER          0x00    /* 0x00 = 60 Hz notch, 0x01 = 50 Hz */
 #define RTD_R0_MOHM         100000  /* PT100 */
-#define RTD_RREF_MOHM       400000  /* 430 ohm: READ THE RESISTOR ON YOUR BOARD */
+#define RTD_RREF_MOHM       400000  /* 400 ohm: READ THE RESISTOR ON YOUR BOARD */
 #define RTD_LEAD_MOHM       0       /* 2-wire lead resistance, both leads */
 #define RTD_ALPHA_PPM       3850
 

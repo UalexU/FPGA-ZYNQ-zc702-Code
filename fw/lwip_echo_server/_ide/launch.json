@@ -28,12 +28,12 @@
           "psDevice": "Auto Detect"
         },
         "resetAPU": false,
-        "bitstreamFile": "${workspaceFolder}\\lwip_echo_server\\_ide\\bitstream\\SPI_TMAG5170UEVM_design_1_wrapper.bit",
+        "bitstreamFile": "${workspaceFolder}\\lwip_echo_server\\_ide\\bitstream\\SPI_TMAG5170UEVM_Final.bit",
         "zynqInitialization": {
           "isFsbl": false,
           "usingFSBL": {
             "initWithFSBL": true,
-            "fsblFile": "${workspaceFolder}\\ethernet_Test\\export\\ethernet_Test\\sw\\boot\\fsbl.elf",
+            "fsblFile": "${workspaceFolder}\\Ethernet_SPI\\export\\Ethernet_SPI\\sw\\boot\\fsbl.elf",
             "fsblExitSymbol": "FsblHandoffJtagExit"
           },
           "usingPs7Init": {
